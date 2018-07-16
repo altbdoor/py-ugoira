@@ -119,45 +119,69 @@ def verbose_print(verbose, message):
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            'ugoira to webm'
+            'Python script to download and convert an ugoira animation on '
+            'Pixiv, and convert it to a video via FFmpeg.'
         )
     )
     parser.add_argument(
         '--pixiv_id', type=int, required=False,
-        help='pixiv id',
+        help=(
+            'The pixiv ID for the ugoira illustration. Required if the '
+            '--process argument is "all" or "getframes".'
+        ),
     )
     parser.add_argument(
         '--frames_path', type=str, required=False,
-        help='frames path',
+        help=(
+            'The path to where the image frames and ffconcat.txt is. Required '
+            'if the --process argument is "convertframes".'
+        ),
     )
 
     process_choices = ('all', 'getframes', 'convertframes', )
     parser.add_argument(
         '--process', type=str, required=False, default='all',
         choices=process_choices,
-        help='processes',
+        help=(
+            'The process that should take place. "all" will execute both '
+            '"getframes" and "convertframes". "getframes" will only obtain the '
+            'ugoira frames, and generate a FFmpeg concat demuxer file. '
+            '"convertframes" will only convert the ugoira frames into a video '
+            'type of your choice through FFmpeg.'
+        ),
     )
 
     parser.add_argument(
         '--video_output', type=str, required=False, default='output.webm',
-        help='video file type',
+        help=(
+            'The output filename for the converted video. Defaults to '
+            '"output.webm".'
+        ),
     )
     parser.add_argument(
         '--interpolate', action='store_true',
-        help='interpolate',
+        help=(
+            'Attempts to interpolate the frames to 60 frames per second. Note, '
+            'it only works well with some ugoira, and would take a longer time '
+            'to finish conversion. Use with care.'
+        ),
     )
     parser.add_argument(
         '--ffmpeg_path', type=str, required=False, default='ffmpeg',
-        help='path to ffmpeg',
+        help='The path to the FFmpeg executable.',
     )
     parser.add_argument(
         '--ffmpeg_args', type=str, required=False,
         default='-c:v libvpx -crf 10 -b:v 2M -an',
-        help='args for ffmpeg',
+        help=(
+            'The arguments for FFmpeg. Defaults to '
+            '"-c:v libvpx -crf 10 -b:v 2M -an", which is VP8 WEBM with a '
+            'variable bitrate of 2 MBit/s, with no audio.'
+        ),
     )
     parser.add_argument(
         '-v', '--verbose', action='store_true',
-        help='verbose',
+        help='Forces the system to print out verbose process messages.',
     )
 
     args = parser.parse_args()
