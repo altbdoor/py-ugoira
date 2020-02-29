@@ -13,78 +13,75 @@ import zipfile
 
 
 def get_ugoira_frames(pixiv_id, output_path, verbose=False):
-    pixiv_url = f'https://www.pixiv.net/member_illust.php?mode=medium&illust_id={pixiv_id}'
-    verbose_print(verbose, f'Fetching URL "{pixiv_url}"')
+    base_pixiv_url = f'https://www.pixiv.net/en/artworks/{pixiv_id}'
+    meta_pixiv_url = f'https://www.pixiv.net/ajax/illust/{pixiv_id}/ugoira_meta'
+    user_agent = 'Mozilla/5.0 (X11; Linux i586; rv:31.0) Gecko/20100101 Firefox/31.0'
 
-    is_process_success = False
-    req = urllib.request.Request(pixiv_url)
+    verbose_print(verbose, f'Fetching URL "{meta_pixiv_url}"')
     ugoira_json = None
+
+    req = urllib.request.Request(meta_pixiv_url)
+    req.add_header('Referer', base_pixiv_url)
+    req.add_header('User-Agent', user_agent)
+    req.add_header('Accept', 'application/json')
 
     with urllib.request.urlopen(req) as res:
         res_text = res.read().decode('utf-8')
-        pixiv_data_line_match = re.search(r'pixiv\.context\.ugokuIllustData\s+=(.+?);', res_text)
-        if pixiv_data_line_match and pixiv_data_line_match.group(1):
-            ugoira_json = pixiv_data_line_match.group(1)
 
-            try:
-                ugoira_json = json.loads(ugoira_json)
-            except json.decoder.JSONDecodeError:
-                ugoira_json = None
+        try:
+            ugoira_json = json.loads(res_text)
+        except json.decoder.JSONDecodeError:
+            return False
 
-    if ugoira_json:
-        verbose_print(verbose, 'Fetching ugoira zip file')
-        ugoira_url = re.sub(r'ugoira\d+x\d+', 'ugoira1920x1080', ugoira_json['src'])
+    req = urllib.request.Request(ugoira_json['body']['originalSrc'])
+    req.add_header('Referer', base_pixiv_url)
+    req.add_header('User-Agent', user_agent)
 
-        req = urllib.request.Request(ugoira_url)
-        req.add_header('Referer', pixiv_url)
+    ugoira_zipfile = os.path.join(tempfile.gettempdir(), f'ugoira_{pixiv_id}.zip')
+    chunk_size = 4 * 1024
 
-        ugoira_zipfile = os.path.join(tempfile.gettempdir(), f'ugoira_{pixiv_id}.zip')
-        chunk_size = 4 * 1024
+    with urllib.request.urlopen(req) as res, open(ugoira_zipfile, 'wb') as out_file:
+        while True:
+            chunk = res.read(chunk_size)
+            if chunk:
+                out_file.write(chunk)
+            else:
+                break
 
-        with urllib.request.urlopen(req) as res, open(ugoira_zipfile, 'wb') as out_file:
-            while True:
-                chunk = res.read(chunk_size)
-                if chunk:
-                    out_file.write(chunk)
-                else:
-                    break
+    verbose_print(verbose, 'Extracting ugoira zip file')
+    with zipfile.ZipFile(ugoira_zipfile, 'r') as zip_ref:
+        zip_ref.extractall(output_path)
 
-        verbose_print(verbose, 'Extracting ugoira zip file')
-        with zipfile.ZipFile(ugoira_zipfile, 'r') as zip_ref:
-            zip_ref.extractall(output_path)
+    verbose_print(verbose, 'Deleting ugoira zip file')
+    os.remove(ugoira_zipfile)
 
-        verbose_print(verbose, 'Deleting ugoira zip file')
-        os.remove(ugoira_zipfile)
+    verbose_print(verbose, 'Creating FFmpeg concat demuxer file')
 
-        verbose_print(verbose, 'Creating FFmpeg concat demuxer file')
+    # https://superuser.com/questions/617392/ffmpeg-image-sequence-with-various-durations
+    ffconcat_file = os.path.join(output_path, 'ffconcat.txt')
+    with open(ffconcat_file, 'w') as out_file:
+        out_file.write('ffconcat version 1.0\n\n')
 
-        # https://superuser.com/questions/617392/ffmpeg-image-sequence-with-various-durations
-        ffconcat_file = os.path.join(output_path, 'ffconcat.txt')
-        with open(ffconcat_file, 'w') as out_file:
-            out_file.write('ffconcat version 1.0\n\n')
+        # https://video.stackexchange.com/questions/20588/ffmpeg-flash-frames-last-still-image-in-concat-sequence
+        ugoira_frames = ugoira_json['body']['frames'].copy()
+        last_frame = ugoira_frames[-1].copy()
+        last_frame['delay'] = 1
+        ugoira_frames.append(last_frame)
 
-            # https://video.stackexchange.com/questions/20588/ffmpeg-flash-frames-last-still-image-in-concat-sequence
-            last_frame = ugoira_json['frames'][-1].copy()
-            last_frame['delay'] = 1
-            ugoira_json['frames'].append(last_frame)
+        for frame in ugoira_frames:
+            frame_file = frame['file']
+            frame_duration = frame['delay'] / 1000
+            frame_duration = round(frame_duration, 4)
 
-            for frame in ugoira_json['frames']:
-                frame_file = frame['file']
-                frame_duration = frame['delay'] / 1000
-                frame_duration = round(frame_duration, 4)
+            out_file.write(
+                f'file {frame_file}\n'
+                f'duration {frame_duration}\n\n'
+            )
 
-                out_file.write(
-                    f'file {frame_file}\n'
-                    f'duration {frame_duration}\n\n'
-                )
+    is_process_success = True
+    verbose_print(verbose, 'Get ugoira frames done')
 
-        is_process_success = True
-        verbose_print(verbose, 'Get ugoira frames done')
-
-    else:
-        verbose_print(verbose, 'Unable to get ugoira frames')
-
-    return is_process_success
+    return True
 
 
 def convert_ugoira_frames(frames_path, video_output, ffmpeg_path, ffmpeg_args, interpolate=False, verbose=False):
